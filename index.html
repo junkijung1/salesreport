@@ -1,0 +1,1438 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>통합 매출 관리 및 직원 조회 시스템</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <style>
+    @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+    body { font-family: 'Pretendard', sans-serif; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
+
+  <!-- Header -->
+  <header class="bg-slate-900 text-white shadow-md">
+    <div class="max-w-7xl mx-auto px-4 py-4 flex flex-col sm:flex-row justify-between items-center gap-4">
+      <div class="flex items-center space-x-3">
+        <div class="bg-indigo-600 p-2.5 rounded-xl shadow-lg">
+          <i class="fa-solid fa-chart-pie text-xl"></i>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="font-bold text-xl tracking-tight">통합 매출 관리 시스템</h1>
+            <span id="syncIndicator" class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> 시트 연동 활성
+            </span>
+          </div>
+          <p class="text-xs text-slate-400">구글 스프레드시트 실시간 동기화 / 다중 사용자 지원</p>
+        </div>
+      </div>
+      <div id="userInfo" class="flex items-center gap-3"></div>
+    </div>
+  </header>
+
+  <!-- Navigation Tabs -->
+  <nav class="bg-white border-b border-slate-200 shadow-sm sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 flex justify-between items-center overflow-x-auto" id="navTabsContainer">
+      <div class="flex space-x-2" id="navTabs"></div>
+      <div id="monthFilterContainer" class="py-2 pr-2 flex items-center gap-2"></div>
+    </div>
+  </nav>
+
+  <!-- Store Management Modal -->
+  <div id="storeModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+      <div class="flex justify-between items-center border-b pb-3">
+        <h3 class="text-lg font-bold text-slate-800">🏪 매장 명칭 및 추가 관리</h3>
+        <button onclick="closeStoreModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-xl"></i></button>
+      </div>
+      <div class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">➕ 새 매장 추가</label>
+          <div class="flex gap-2">
+            <input type="text" id="newStoreInput" placeholder="예: 2호점, 직영점 등" class="flex-1 border p-2 rounded-lg text-sm" />
+            <button onclick="addNewStore()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold shadow-xs whitespace-nowrap">추가</button>
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-2">📋 등록된 매장 목록 (명칭 수정 및 삭제)</label>
+          <div id="storeListContainer" class="space-y-2 max-h-60 overflow-y-auto"></div>
+        </div>
+      </div>
+      <div class="flex justify-end pt-2 border-t">
+        <button onclick="closeStoreModal()" class="px-4 py-2 bg-slate-100 text-slate-600 rounded-lg text-sm font-semibold">닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading Overlay -->
+  <div id="globalLoading" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs hidden items-center justify-center z-50">
+    <div class="bg-white px-6 py-4 rounded-2xl shadow-xl flex items-center gap-3 border border-slate-100">
+      <i class="fa-solid fa-circle-notch fa-spin text-indigo-600 text-xl"></i>
+      <span class="text-sm font-bold text-slate-700" id="loadingText">구글 스프레드시트와 동기화 중...</span>
+    </div>
+  </div>
+
+  <!-- Main Content Area -->
+  <main class="max-w-7xl mx-auto px-4 py-6 flex-grow w-full">
+    <div id="contentArea"></div>
+  </main>
+
+  <!-- Edit Modal -->
+  <div id="editModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-4">
+      <div class="flex justify-between items-center border-b pb-3">
+        <h3 class="text-lg font-bold text-slate-800">✏️ 계약 정보 수정</h3>
+        <button onclick="closeEditModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-xl"></i></button>
+      </div>
+      <form onsubmit="handleSaveEdit(event)" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <input type="hidden" id="editId" />
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">매장 선택</label>
+          <select id="editStoreSelect" class="w-full border p-2.5 rounded-lg text-sm"></select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">계약일자</label>
+          <input type="date" id="editDate" class="w-full border p-2.5 rounded-lg text-sm" required />
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">고객명</label>
+          <input type="text" id="editCustomer" class="w-full border p-2.5 rounded-lg text-sm" required />
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">계약번호 (AJD: ajung, AJO: ajsto 자동인식)</label>
+          <input type="text" id="editContractNo" oninput="autoDetectPath(this.value, 'editPath')" class="w-full border p-2.5 rounded-lg text-sm uppercase font-mono font-bold" required />
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">마진액 / 매출액 (원)</label>
+          <input type="number" id="editMargin" class="w-full border p-2.5 rounded-lg text-sm" required />
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">계약 유형</label>
+          <select id="editType" onchange="toggleEditModongAndBuga()" class="w-full border p-2.5 rounded-lg text-sm">
+            <option value="인터넷">인터넷</option>
+            <option value="모바일">모바일</option>
+            <option value="유심">유심</option>
+            <option value="알뜰폰">알뜰폰</option>
+            <option value="렌탈">렌탈</option>
+            <option value="상조">상조</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">모동 여부 (모바일 시)</label>
+          <select id="editModong" class="w-full border p-2.5 rounded-lg text-sm">
+            <option value="X">X</option>
+            <option value="O">O</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">부가 여부 (모바일 시)</label>
+          <select id="editBuga" class="w-full border p-2.5 rounded-lg text-sm">
+            <option value="X">X</option>
+            <option value="O">O</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">접수 경로</label>
+          <select id="editPath" class="w-full border p-2.5 rounded-lg text-sm">
+            <option value="ajsto">ajsto</option>
+            <option value="ajung">ajung</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">담당 직원</label>
+          <select id="editEmpId" class="w-full border p-2.5 rounded-lg text-sm"></select>
+        </div>
+        <div class="sm:col-span-2 flex justify-end gap-2 pt-2">
+          <button type="button" onclick="closeEditModal()" class="px-4 py-2 bg-slate-100 text-slate-600 rounded-lg text-sm font-semibold">취소</button>
+          <button type="submit" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold shadow-md">수정 완료</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    // 구글 스프레드시트 배포 웹 앱 API URL
+    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycby1WnQRwccMATLOTRNFiGPG8cs4hOLW0_X9U3Q2LbEI29bH4K1DKFE-IGEsZcnIfmiR9Q/exec";
+
+    const defaultAccounts = [
+      { id: "admin", name: "정준기", pass: "0216", role: "admin" },
+      { id: "emp1", name: "정준기", pass: "1234", role: "employee" },
+      { id: "emp2", name: "최시우", pass: "1234", role: "employee" },
+      { id: "emp3", name: "전영수", pass: "1234", role: "employee" },
+      { id: "emp4", name: "유주영", pass: "1234", role: "employee" }
+    ];
+
+    const defaultStores = ["1호점"];
+
+    const empColorMap = {
+      "정준기": "bg-indigo-100 text-indigo-800 border-indigo-200",
+      "최시우": "bg-emerald-100 text-emerald-800 border-emerald-200",
+      "전영수": "bg-amber-100 text-amber-800 border-amber-200",
+      "유주영": "bg-pink-100 text-pink-800 border-pink-200"
+    };
+
+    let salesData = JSON.parse(localStorage.getItem('salesData')) || [];
+    let accountsList = JSON.parse(localStorage.getItem('accountsList')) || defaultAccounts;
+    let storeList = JSON.parse(localStorage.getItem('storeList')) || defaultStores;
+    let selectedStore = localStorage.getItem('selectedStore') || 'all';
+    let currentAuth = JSON.parse(localStorage.getItem('currentAuth')) || null;
+    let activeTab = 'admin_store';
+    let selectedMonth = 'all';
+
+    function saveStores() { localStorage.setItem('storeList', JSON.stringify(storeList)); }
+    function saveSelectedStore() { localStorage.setItem('selectedStore', selectedStore); }
+
+    // 계약번호 접두어 자동인식 (AJD -> ajung, AJO -> ajsto)
+    function autoDetectPath(contractNoVal, selectElementId) {
+      if (!contractNoVal) return;
+      const cleanVal = contractNoVal.trim().toUpperCase();
+      const selectEl = document.getElementById(selectElementId);
+      if (!selectEl) return;
+
+      if (cleanVal.startsWith("AJD")) {
+        selectEl.value = "ajung";
+      } else if (cleanVal.startsWith("AJO")) {
+        selectEl.value = "ajsto";
+      }
+    }
+
+    // 모달 및 입력창 매장 관리
+    function openStoreModal() {
+      renderStoreListModal();
+      const modal = document.getElementById('storeModal');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    }
+
+    function closeStoreModal() {
+      const modal = document.getElementById('storeModal');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+      renderNav();
+      renderContent();
+    }
+
+    function renderStoreListModal() {
+      const container = document.getElementById('storeListContainer');
+      if (!container) return;
+      container.innerHTML = storeList.map((store, idx) => `
+        <div class="flex items-center justify-between p-2.5 bg-slate-50 border rounded-lg">
+          <span class="font-bold text-slate-800 text-sm">${store}</span>
+          <div class="space-x-1">
+            <button onclick="editStoreName(${idx})" class="px-2.5 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded text-xs font-semibold">이름 수정</button>
+            ${storeList.length > 1 ? `<button onclick="deleteStore(${idx})" class="px-2.5 py-1 bg-red-100 hover:bg-red-200 text-red-600 rounded text-xs font-semibold">삭제</button>` : ''}
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function addNewStore() {
+      const input = document.getElementById('newStoreInput');
+      const name = input.value.trim();
+      if (!name) return;
+      if (storeList.includes(name)) {
+        alert("이미 존재하는 매장 명칭입니다.");
+        return;
+      }
+      storeList.push(name);
+      saveStores();
+      input.value = "";
+      renderStoreListModal();
+    }
+
+    function editStoreName(index) {
+      const oldName = storeList[index];
+      const newName = prompt("수정할 매장 명칭을 입력하세요:", oldName);
+      if (!newName || newName.trim() === "" || newName.trim() === oldName) return;
+      const cleanName = newName.trim();
+      if (storeList.includes(cleanName)) {
+        alert("이미 존재하는 매장 명칭입니다.");
+        return;
+      }
+      salesData.forEach(d => {
+        if (d.storeName === oldName) d.storeName = cleanName;
+      });
+      saveData();
+      storeList[index] = cleanName;
+      saveStores();
+      if (selectedStore === oldName) {
+        selectedStore = cleanName;
+        saveSelectedStore();
+      }
+      renderStoreListModal();
+    }
+
+    function deleteStore(index) {
+      if (storeList.length <= 1) {
+        alert("최소 1개의 매장은 유지되어야 합니다.");
+        return;
+      }
+      const targetStore = storeList[index];
+      if (confirm(`'${targetStore}' 매장을 삭제하시겠습니까?`)) {
+        storeList.splice(index, 1);
+        saveStores();
+        if (selectedStore === targetStore) {
+          selectedStore = 'all';
+          saveSelectedStore();
+        }
+        renderStoreListModal();
+      }
+    }
+
+    function showLoading(msg = "구글 스프레드시트와 동기화 중...") {
+      document.getElementById('loadingText').innerText = msg;
+      const overlay = document.getElementById('globalLoading');
+      overlay.classList.remove('hidden');
+      overlay.classList.add('flex');
+    }
+
+    function hideLoading() {
+      const overlay = document.getElementById('globalLoading');
+      overlay.classList.add('hidden');
+      overlay.classList.remove('flex');
+    }
+
+    function getCurrentYearMonth() {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      return `${year}-${month}`;
+    }
+
+    function saveData() { localStorage.setItem('salesData', JSON.stringify(salesData)); }
+    function saveAccounts() { localStorage.setItem('accountsList', JSON.stringify(accountsList)); }
+    function saveAuth() { localStorage.setItem('currentAuth', JSON.stringify(currentAuth)); }
+
+    // 구글 시트에서 데이터 가져오기 (GET)
+    async function fetchSheetData(silent = false) {
+      if (!silent) showLoading("구글 스프레드시트 데이터 불러오는 중...");
+      try {
+        const response = await fetch(GOOGLE_SCRIPT_URL);
+        if (!response.ok) throw new Error("네트워크 응답 오류");
+        const data = await response.json();
+        if (Array.isArray(data)) {
+          salesData = data.map(item => ({
+            id: Number(item.id) || Date.now(),
+            date: item.date ? String(item.date).substring(0, 10) : "",
+            customer: String(item.customer || ""),
+            contractNo: String(item.contractNo || "").trim().toUpperCase(),
+            sales: Number(item.margin || item.sales || 0),
+            margin: Number(item.margin || item.sales || 0),
+            type: String(item.type || "인터넷"),
+            modong: String(item.modong || "X"),
+            buga: String(item.buga || "X"),
+            path: String(item.path || "ajsto"),
+            employeeId: String(item.employeeId || ""),
+            employeeName: String(item.employeeName || ""),
+            storeName: String(item.storeName || storeList[0] || "1호점")
+          }));
+          saveData();
+          document.getElementById('syncIndicator').innerHTML = `
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> 시트 연동 정상 (${salesData.length}건)
+          `;
+        }
+      } catch (err) {
+        console.warn("Google Sheet 연동 오류 (로컬 캐시 사용):", err);
+        document.getElementById('syncIndicator').innerHTML = `
+          <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span> 로컬 캐시 모드
+        `;
+      } finally {
+        if (!silent) hideLoading();
+        renderNav();
+        renderContent();
+      }
+    }
+
+    // 구글 시트로 POST 요청 전송
+    async function postToSheet(payload) {
+      showLoading("구글 스프레드시트에 저장 중...");
+      try {
+        await fetch(GOOGLE_SCRIPT_URL, {
+          method: "POST",
+          mode: "no-cors",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+      } catch (err) {
+        console.error("구글 시트 전송 오류:", err);
+      } finally {
+        hideLoading();
+      }
+    }
+
+    function getFilteredSalesData() {
+      let result = salesData;
+
+      if (currentAuth && currentAuth.role === 'employee') {
+        const currentYM = getCurrentYearMonth();
+        result = result.filter(d => d.date && d.date.startsWith(currentYM));
+      } else if (selectedMonth !== 'all') {
+        result = result.filter(d => d.date && d.date.startsWith(selectedMonth));
+      }
+
+      if (selectedStore !== 'all') {
+        result = result.filter(d => (d.storeName || storeList[0]) === selectedStore);
+      }
+
+      return result;
+    }
+
+    function renderHeader() {
+      const userInfoEl = document.getElementById('userInfo');
+      if (!currentAuth) {
+        userInfoEl.innerHTML = `<span class="text-xs text-slate-400">로그인이 필요합니다</span>`;
+        return;
+      }
+
+      if (currentAuth.role === 'admin') {
+        userInfoEl.innerHTML = `
+          <button onclick="fetchSheetData()" title="시트 새로고침" class="bg-slate-800 hover:bg-slate-700 text-indigo-300 text-xs px-2.5 py-1.5 rounded-lg border border-slate-700 flex items-center gap-1 transition">
+            <i class="fa-solid fa-arrows-rotate"></i> 새로고침
+          </button>
+          <span class="bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs px-2.5 py-1 rounded-full font-semibold">관리자 (${currentAuth.name})</span>
+          <button onclick="handleLogout()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs px-3 py-1.5 rounded-lg transition border border-slate-700">로그아웃</button>
+        `;
+      } else {
+        userInfoEl.innerHTML = `
+          <button onclick="fetchSheetData()" title="시트 새로고침" class="bg-slate-800 hover:bg-slate-700 text-indigo-300 text-xs px-2.5 py-1.5 rounded-lg border border-slate-700 flex items-center gap-1 transition">
+            <i class="fa-solid fa-arrows-rotate"></i> 새로고침
+          </button>
+          <div class="text-right">
+            <span class="text-xs text-slate-400 block">직원 로그인 (당월)</span>
+            <span class="font-bold text-sm text-indigo-300">${currentAuth.name} (${currentAuth.id})</span>
+          </div>
+          <button onclick="handleLogout()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs px-3 py-1.5 rounded-lg transition border border-slate-700">로그아웃</button>
+        `;
+      }
+    }
+
+    function renderNav() {
+      const navEl = document.getElementById('navTabs');
+      const monthFilterEl = document.getElementById('monthFilterContainer');
+      if (!currentAuth) {
+        navEl.innerHTML = '';
+        monthFilterEl.innerHTML = '';
+        return;
+      }
+
+      const activeStoreDisplay = selectedStore === 'all' ? '전체 매장' : selectedStore;
+
+      if (currentAuth.role === 'admin') {
+        navEl.innerHTML = `
+          <button onclick="setTab('admin_store')" class="px-4 py-3 font-semibold text-sm border-b-2 whitespace-nowrap transition ${activeTab === 'admin_store' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-800'}">🏬 매장 실적 현황 (${activeStoreDisplay})</button>
+          <button onclick="setTab('admin_emp_summary')" class="px-4 py-3 font-semibold text-sm border-b-2 whitespace-nowrap transition ${activeTab === 'admin_emp_summary' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-800'}">직원별 실적 현황</button>
+          <button onclick="setTab('admin_emp_manage')" class="px-4 py-3 font-semibold text-sm border-b-2 whitespace-nowrap transition ${activeTab === 'admin_emp_manage' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-800'}">👥 직원 계정 관리</button>
+          <button onclick="setTab('admin_ledger')" class="px-4 py-3 font-semibold text-sm border-b-2 whitespace-nowrap transition ${activeTab === 'admin_ledger' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-800'}">📋 전체 매장 판매건 리스트</button>
+        `;
+
+        const monthsSet = new Set(salesData.map(d => d.date ? d.date.substring(0, 7) : null).filter(Boolean));
+        monthsSet.add(getCurrentYearMonth());
+        const monthsList = Array.from(monthsSet).sort().reverse();
+
+        monthFilterEl.innerHTML = `
+          <div class="flex items-center gap-1.5">
+            <span class="text-xs font-semibold text-slate-500">🏪 매장:</span>
+            <select onchange="changeSelectedStore(this.value)" class="border border-slate-300 rounded-lg text-xs p-1.5 focus:ring-2 focus:ring-indigo-500 outline-none">
+              <option value="all" ${selectedStore === 'all' ? 'selected' : ''}>전체 매장</option>
+              ${storeList.map(st => `<option value="${st}" ${selectedStore === st ? 'selected' : ''}>${st}</option>`).join('')}
+            </select>
+            <button onclick="openStoreModal()" title="매장 명칭 수정 및 추가" class="p-1.5 text-xs text-indigo-600 hover:bg-indigo-50 border border-indigo-200 rounded-lg">
+              <i class="fa-solid fa-gear"></i>
+            </button>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span class="text-xs font-semibold text-slate-500">📅 월:</span>
+            <select onchange="changeSelectedMonth(this.value)" class="border border-slate-300 rounded-lg text-xs p-1.5 focus:ring-2 focus:ring-indigo-500 outline-none">
+              <option value="all" ${selectedMonth === 'all' ? 'selected' : ''}>전체 기간</option>
+              ${monthsList.map(m => `<option value="${m}" ${selectedMonth === m ? 'selected' : ''}>${m}</option>`).join('')}
+            </select>
+          </div>
+        `;
+      } else {
+        navEl.innerHTML = `
+          <button onclick="setTab('emp_personal')" class="px-4 py-3 font-semibold text-sm border-b-2 whitespace-nowrap transition ${activeTab === 'emp_personal' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-800'}">내 개인 당월 실적</button>
+          <button onclick="setTab('emp_store_view')" class="px-4 py-3 font-semibold text-sm border-b-2 whitespace-nowrap transition ${activeTab === 'emp_store_view' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-800'}">매장 전체 현황</button>
+        `;
+        monthFilterEl.innerHTML = `
+          <div class="flex items-center gap-2">
+            <select onchange="changeSelectedStore(this.value)" class="border border-slate-300 rounded-lg text-xs p-1.5 focus:ring-2 focus:ring-indigo-500 outline-none">
+              <option value="all" ${selectedStore === 'all' ? 'selected' : ''}>전체 매장</option>
+              ${storeList.map(st => `<option value="${st}" ${selectedStore === st ? 'selected' : ''}>${st}</option>`).join('')}
+            </select>
+            <span class="text-xs text-indigo-600 font-bold bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-100">📅 ${getCurrentYearMonth()} 당월</span>
+          </div>
+        `;
+      }
+    }
+
+    function changeSelectedStore(st) {
+      selectedStore = st;
+      saveSelectedStore();
+      renderNav();
+      renderContent();
+    }
+
+    function changeSelectedMonth(m) {
+      selectedMonth = m;
+      renderContent();
+    }
+
+    function setTab(tab) {
+      activeTab = tab;
+      renderNav();
+      renderContent();
+    }
+
+    function handleLogout() {
+      currentAuth = null;
+      saveAuth();
+      renderHeader();
+      renderNav();
+      renderContent();
+    }
+
+    function renderContent() {
+      const contentEl = document.getElementById('contentArea');
+      if (!currentAuth) {
+        contentEl.innerHTML = renderUnifiedLoginPage();
+        return;
+      }
+
+      switch (activeTab) {
+        case 'admin_store': 
+          contentEl.innerHTML = renderStoreStatus(); 
+          initStoreChart(); 
+          initDailyBarChart();
+          break;
+        case 'admin_emp_summary': contentEl.innerHTML = renderEmployeeSummary(); break;
+        case 'admin_emp_manage': contentEl.innerHTML = renderEmployeeManagement(); break;
+        case 'admin_ledger': contentEl.innerHTML = renderAdminLedger(); break;
+        case 'emp_personal': contentEl.innerHTML = renderEmpPersonalView(); break;
+        case 'emp_store_view': 
+          contentEl.innerHTML = renderStoreStatus(); 
+          initStoreChart(); 
+          initDailyBarChart();
+          break;
+        default: contentEl.innerHTML = '';
+      }
+    }
+
+    function renderUnifiedLoginPage() {
+      return `
+        <div class="max-w-md mx-auto bg-white p-8 rounded-2xl shadow-md border border-slate-200 mt-10">
+          <h2 class="text-xl font-bold text-slate-800 text-center mb-2">통합 시스템 로그인</h2>
+          <p class="text-xs text-slate-500 text-center mb-6">접속하실 계정을 선택하고 비밀번호를 입력해주세요.</p>
+          <form onsubmit="handleLoginSubmit(event)" class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-1">사용자 선택</label>
+              <select id="loginUserId" class="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 outline-none">
+                ${accountsList.map(acc => `
+                  <option value="${acc.id}">
+                    ${acc.name} ${acc.role === 'admin' ? '(관리자)' : `(${acc.id})`}
+                  </option>
+                `).join('')}
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-1">비밀번호</label>
+              <div class="relative">
+                <input type="password" id="loginPassInput" placeholder="비밀번호 입력 (숫자 4자리)" class="w-full border border-slate-300 rounded-lg p-2.5 pr-10 focus:ring-2 focus:ring-indigo-500 outline-none" required />
+                <button type="button" onclick="togglePassVisibility('loginPassInput')" class="absolute right-3 top-3 text-slate-400 hover:text-slate-600"><i class="fa-solid fa-eye"></i></button>
+              </div>
+            </div>
+            <button type="submit" class="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 rounded-lg transition shadow-md">
+              로그인
+            </button>
+          </form>
+        </div>
+      `;
+    }
+
+    function togglePassVisibility(inputId) {
+      const el = document.getElementById(inputId);
+      if (el) el.type = el.type === 'password' ? 'text' : 'password';
+    }
+
+    function handleLoginSubmit(e) {
+      e.preventDefault();
+      const selectedId = document.getElementById('loginUserId').value;
+      const pass = document.getElementById('loginPassInput').value;
+      const acc = accountsList.find(x => x.id === selectedId);
+
+      if (acc && acc.pass === pass) {
+        currentAuth = { id: acc.id, name: acc.name, role: acc.role };
+        activeTab = acc.role === 'admin' ? 'admin_store' : 'emp_personal';
+        saveAuth();
+        renderHeader();
+        renderNav();
+        renderContent();
+      } else {
+        alert('비밀번호가 일치하지 않습니다.');
+      }
+    }
+
+    function renderStoreStatus() {
+      const dataToDisplay = getFilteredSalesData();
+      const totalMargin = dataToDisplay.reduce((acc, cur) => acc + Number(cur.margin || cur.sales || 0), 0);
+      const totalCount = dataToDisplay.length;
+      const overallAvgMargin = totalCount > 0 ? Math.round(totalMargin / totalCount) : 0;
+
+      const mobileItems = dataToDisplay.filter(d => d.type === '모바일');
+      const mobileCount = mobileItems.length;
+
+      // 부가 유치율: 모바일 건 중 buga == 'O' 이고 마진 >= 220000 인 건
+      const bugaQualItems = mobileItems.filter(d => d.buga === 'O' && Number(d.margin || d.sales || 0) >= 220000);
+      const bugaQualCount = bugaQualItems.length;
+      const bugaRatio = mobileCount > 0 ? ((bugaQualCount * 100) / mobileCount).toFixed(1) : 0;
+
+      const types = ['인터넷', '모바일', '유심', '알뜰폰', '렌탈', '상조'];
+
+      return `
+        <div class="space-y-6">
+          <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+              <p class="text-xs text-slate-500 mb-1">총 마진액 (총 매출)</p>
+              <p class="text-2xl font-black text-slate-900">${totalMargin.toLocaleString()}원</p>
+            </div>
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+              <p class="text-xs text-slate-500 mb-1">총 판매건수</p>
+              <p class="text-2xl font-black text-indigo-600">${totalCount}건</p>
+            </div>
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+              <p class="text-xs text-slate-500 mb-1">전체 건당 평균 마진</p>
+              <p class="text-2xl font-black text-emerald-600">${overallAvgMargin.toLocaleString()}원</p>
+            </div>
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+              <p class="text-xs text-slate-500 mb-1">부가 유치율 (22만↑ 인정)</p>
+              <p class="text-2xl font-black text-violet-600">${bugaRatio}% <span class="text-xs font-normal text-slate-400">(${bugaQualCount}/${mobileCount}건)</span></p>
+            </div>
+          </div>
+
+          <!-- 일별 실적 막대 그래프 -->
+          <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+            <h3 class="text-base font-bold text-slate-800 mb-4">📊 일별 건수 분석 (ajung / ajsto 경로 비교)</h3>
+            <div class="w-full h-64 relative">
+              <canvas id="dailyBarChart"></canvas>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm flex flex-col items-center justify-center">
+              <h3 class="text-base font-bold text-slate-800 mb-4 self-start">🍩 유형별 판매비중 (건수 기준)</h3>
+              <div class="w-56 h-56 relative">
+                <canvas id="storeTypeChart"></canvas>
+              </div>
+            </div>
+
+            <div class="lg:col-span-2 bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+              <h3 class="text-base font-bold text-slate-800 mb-4">📊 상품 유형별 평균 마진 및 실적 리포트</h3>
+              <div class="overflow-x-auto">
+                <table class="w-full text-sm text-center">
+                  <thead class="bg-slate-100 text-slate-700 font-semibold">
+                    <tr>
+                      <th class="p-3 text-left">계약 유형</th>
+                      <th class="p-3">판매건수</th>
+                      <th class="p-3">판매비중</th>
+                      <th class="p-3">유형별 총 마진액</th>
+                      <th class="p-3 text-emerald-700 bg-emerald-50">상품 유형별 건당 평균마진</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-100">
+                    ${types.map(t => {
+                      const items = dataToDisplay.filter(d => d.type === t);
+                      const count = items.length;
+                      const weight = totalCount > 0 ? ((count / totalCount) * 100).toFixed(1) : 0;
+                      const marginSum = items.reduce((a, b) => a + Number(b.margin || b.sales || 0), 0);
+                      const avgMargin = count > 0 ? Math.round(marginSum / count) : 0;
+
+                      return `
+                        <tr class="hover:bg-slate-50">
+                          <td class="p-3 font-bold text-left">${t}</td>
+                          <td class="p-3 font-semibold text-indigo-600">${count}건</td>
+                          <td class="p-3 font-semibold text-slate-600">${weight}%</td>
+                          <td class="p-3 font-bold text-slate-900">${marginSum.toLocaleString()}원</td>
+                          <td class="p-3 font-black text-emerald-600 bg-emerald-50/50">${avgMargin.toLocaleString()}원</td>
+                        </tr>
+                      `;
+                    }).join('')}
+                    <tr class="bg-slate-100 font-bold border-t-2 border-slate-200">
+                      <td class="p-3 text-left">합계 / 평균</td>
+                      <td class="p-3 text-indigo-700">${totalCount}건</td>
+                      <td class="p-3">100.0%</td>
+                      <td class="p-3 text-slate-900">${totalMargin.toLocaleString()}원</td>
+                      <td class="p-3 text-emerald-700 bg-emerald-100/50">${overallAvgMargin.toLocaleString()}원</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- 달력 형태의 일별 실적 현황판 -->
+          ${renderCalendarView(dataToDisplay)}
+        </div>
+      `;
+    }
+
+    function renderCalendarView(dataToDisplay) {
+      const ym = selectedMonth === 'all' ? getCurrentYearMonth() : selectedMonth;
+      const [year, month] = ym.split('-').map(Number);
+      
+      const firstDay = new Date(year, month - 1, 1).getDay();
+      const lastDate = new Date(year, month, 0).getDate();
+
+      let daysHtml = '';
+      for (let i = 0; i < firstDay; i++) {
+        daysHtml += `<div class="bg-slate-50/50 min-h-[100px] border border-slate-100 p-1"></div>`;
+      }
+
+      for (let d = 1; d <= lastDate; d++) {
+        const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        const dayItems = dataToDisplay.filter(item => item.date === dateStr);
+        const ajstoCnt = dayItems.filter(i => i.path === 'ajsto').length;
+        const ajungCnt = dayItems.filter(i => i.path === 'ajung').length;
+
+        let empBadges = '';
+        const empCounts = {};
+        dayItems.forEach(i => {
+          empCounts[i.employeeName] = (empCounts[i.employeeName] || 0) + 1;
+        });
+
+        Object.keys(empCounts).forEach(empName => {
+          const colorClass = empColorMap[empName] || "bg-slate-100 text-slate-700 border-slate-200";
+          empBadges += `
+            <span class="text-[10px] font-bold px-1.5 py-0.5 rounded border ${colorClass} block mb-0.5">
+              ${empName}: ${empCounts[empName]}건
+            </span>
+          `;
+        });
+
+        daysHtml += `
+          <div class="bg-white min-h-[100px] border border-slate-200 p-2 rounded-xl flex flex-col justify-between shadow-xs hover:border-indigo-300 transition">
+            <div class="flex justify-between items-start">
+              <span class="font-bold text-xs ${dayItems.length > 0 ? 'text-indigo-600' : 'text-slate-400'}">${d}일</span>
+              ${dayItems.length > 0 ? `<span class="bg-indigo-600 text-white font-black text-[10px] px-1.5 py-0.5 rounded-full">${dayItems.length}건</span>` : ''}
+            </div>
+            <div class="my-1">
+              ${empBadges}
+            </div>
+            ${dayItems.length > 0 ? `
+              <div class="text-[10px] font-semibold text-slate-400 border-t pt-1 flex justify-between">
+                <span>sto:${ajstoCnt}</span>
+                <span>jung:${ajungCnt}</span>
+              </div>
+            ` : '<span class="text-[10px] text-slate-300">-</span>'}
+          </div>
+        `;
+      }
+
+      return `
+        <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-4">
+          <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+            <h3 class="text-base font-bold text-slate-800">📅 ${year}년 ${month}월 일별 달력 현황판</h3>
+            <div class="flex flex-wrap gap-2 text-xs">
+              <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-indigo-500"></span> 정준기</span>
+              <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> 최시우</span>
+              <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span> 전영수</span>
+              <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-pink-500"></span> 유주영</span>
+            </div>
+          </div>
+          <div class="grid grid-cols-7 gap-1 text-center font-bold text-xs text-slate-500 bg-slate-100 p-2 rounded-xl">
+            <div class="text-red-500">일</div>
+            <div>월</div>
+            <div>화</div>
+            <div>수</div>
+            <div>목</div>
+            <div>금</div>
+            <div class="text-blue-500">토</div>
+          </div>
+          <div class="grid grid-cols-7 gap-1">
+            ${daysHtml}
+          </div>
+        </div>
+      `;
+    }
+
+    function initDailyBarChart() {
+      const canvas = document.getElementById('dailyBarChart');
+      if (!canvas) return;
+
+      const dataToDisplay = getFilteredSalesData();
+      const datesSet = new Set(dataToDisplay.map(d => d.date).filter(Boolean));
+      const sortedDates = Array.from(datesSet).sort();
+
+      const labels = sortedDates.map(d => d.substring(5)); // MM-DD
+      const ajstoData = sortedDates.map(d => dataToDisplay.filter(item => item.date === d && item.path === 'ajsto').length);
+      const ajungData = sortedDates.map(d => dataToDisplay.filter(item => item.date === d && item.path === 'ajung').length);
+
+      new Chart(canvas, {
+        type: 'bar',
+        data: {
+          labels: labels.length > 0 ? labels : ['데이터 없음'],
+          datasets: [
+            {
+              label: 'ajsto 건수',
+              data: ajstoData.length > 0 ? ajstoData : [0],
+              backgroundColor: '#6366f1',
+              borderRadius: 4
+            },
+            {
+              label: 'ajung 건수',
+              data: ajungData.length > 0 ? ajungData : [0],
+              backgroundColor: '#3b82f6',
+              borderRadius: 4
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'top', labels: { boxWidth: 12, font: { size: 11 } } }
+          },
+          scales: {
+            y: { beginAtZero: true, ticks: { stepSize: 1 } }
+          }
+        }
+      });
+    }
+
+    function initStoreChart() {
+      const canvas = document.getElementById('storeTypeChart');
+      if (!canvas) return;
+
+      const dataToDisplay = getFilteredSalesData();
+      const types = ['인터넷', '모바일', '유심', '알뜰폰', '렌탈', '상조'];
+      const counts = types.map(t => dataToDisplay.filter(d => d.type === t).length);
+
+      new Chart(canvas, {
+        type: 'doughnut',
+        data: {
+          labels: types,
+          datasets: [{
+            data: counts,
+            backgroundColor: ['#6366f1', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#64748b'],
+            borderWidth: 2
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } }
+          }
+        }
+      });
+    }
+
+    function renderEmployeeSummary() {
+      const dataToDisplay = getFilteredSalesData();
+      const types = ['인터넷', '모바일', '유심', '알뜰폰', '렌탈', '상조'];
+      const totalStoreSales = dataToDisplay.reduce((acc, cur) => acc + Number(cur.margin || cur.sales || 0), 0);
+      const employeesOnly = accountsList.filter(a => a.role === 'employee');
+
+      return `
+        <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+          <h2 class="text-xl font-bold text-slate-800 mb-2">👥 직원별 실적 현황 (ajung / ajsto 통합)</h2>
+          <p class="text-xs text-slate-500 mb-6">유형별 건수, 총 마진액, 모동 유치율 및 부가 유치율(22만↑ 인정)을 비교 분석합니다.</p>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm text-center">
+              <thead class="bg-slate-100 text-slate-700 font-semibold">
+                <tr>
+                  <th class="p-3 text-left">직원명 (ID)</th>
+                  ${types.map(t => `<th class="p-3">${t}</th>`).join('')}
+                  <th class="p-3 bg-indigo-50 text-indigo-700">총 합산건수</th>
+                  <th class="p-3">총 마진액</th>
+                  <th class="p-3">모동 유치율</th>
+                  <th class="p-3 text-violet-700 bg-violet-50">부가 유치율 (건수)</th>
+                  <th class="p-3">기여도</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                ${employeesOnly.map(emp => {
+                  const empItems = dataToDisplay.filter(d => d.employeeId === emp.id);
+                  const totalCount = empItems.length;
+                  const totalSales = empItems.reduce((acc, cur) => acc + Number(cur.margin || cur.sales || 0), 0);
+                  
+                  const mobItems = empItems.filter(d => d.type === '모바일');
+                  const mobCount = mobItems.length;
+                  const modongO = mobItems.filter(d => d.modong === 'O').length;
+                  const modongRatio = mobCount > 0 ? ((modongO / mobCount) * 100).toFixed(1) : 0;
+
+                  // 부가 유치율 계산: 모바일 중 buga == 'O' 이고 margin >= 220,000 인 건수
+                  const bugaQual = mobItems.filter(d => d.buga === 'O' && Number(d.margin || d.sales || 0) >= 220000).length;
+                  const bugaRatio = mobCount > 0 ? ((bugaQual * 100) / mobCount).toFixed(1) : 0;
+
+                  const contribution = totalStoreSales > 0 ? ((totalSales / totalStoreSales) * 100).toFixed(1) : 0;
+
+                  return `
+                    <tr class="hover:bg-slate-50">
+                      <td class="p-3 font-bold text-left">${emp.name} <span class="text-xs text-slate-400 font-mono font-normal">(${emp.id})</span></td>
+                      ${types.map(t => {
+                        const cnt = empItems.filter(d => d.type === t).length;
+                        return `<td class="p-3 ${cnt > 0 ? 'font-semibold text-slate-800' : 'text-slate-300'}">${cnt}건</td>`;
+                      }).join('')}
+                      <td class="p-3 bg-indigo-50 font-black text-indigo-600">${totalCount}건</td>
+                      <td class="p-3 font-bold text-slate-900">${totalSales.toLocaleString()}원</td>
+                      <td class="p-3 font-bold text-amber-600">${modongRatio}%</td>
+                      <td class="p-3 font-black text-violet-700 bg-violet-50/50">${bugaRatio}% <span class="text-xs text-slate-500 font-normal">(${bugaQual}건)</span></td>
+                      <td class="p-3 font-bold text-emerald-600">${contribution}%</td>
+                    </tr>
+                  `;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderEmployeeManagement() {
+      const employeesOnly = accountsList.filter(a => a.role === 'employee');
+
+      return `
+        <div class="space-y-6">
+          <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+            <h2 class="text-xl font-bold mb-4 text-slate-800">➕ 신규 직원 등록 (인원 추가)</h2>
+            <form onsubmit="handleAddEmployee(event)" class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <label class="block text-xs font-semibold text-slate-600 mb-1">직원 아이디 (ID)</label>
+                <input type="text" id="addEmpId" placeholder="예: emp5 또는 user_kim" class="w-full border p-2.5 rounded-lg text-sm" required />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-600 mb-1">직원 이름</label>
+                <input type="text" id="addEmpName" placeholder="예: 이순신" class="w-full border p-2.5 rounded-lg text-sm" required />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-600 mb-1">초기 비밀번호</label>
+                <input type="text" id="addEmpPass" placeholder="숫자 4자리" value="1234" class="w-full border p-2.5 rounded-lg text-sm font-mono" required />
+              </div>
+              <div class="sm:col-span-3">
+                <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl transition shadow-md">
+                  + 신규 직원 계정 추가하기
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+            <h2 class="text-xl font-bold mb-4 text-slate-800">⚙️ 등록된 직원 계정 수정 및 삭제</h2>
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm text-left">
+                <thead class="bg-slate-100 text-slate-600">
+                  <tr>
+                    <th class="p-3">직원 ID</th>
+                    <th class="p-3">직원 이름</th>
+                    <th class="p-3">비밀번호</th>
+                    <th class="p-3 text-center">관리</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                  ${employeesOnly.map(emp => `
+                    <tr>
+                      <td class="p-3 font-mono text-indigo-600 font-bold">${emp.id}</td>
+                      <td class="p-3 font-bold text-slate-800">${emp.name}</td>
+                      <td class="p-3 font-mono text-emerald-600 font-bold">${emp.pass}</td>
+                      <td class="p-3 text-center space-x-2">
+                        <button onclick="editEmployee('${emp.id}')" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1 rounded-lg text-xs font-semibold">
+                          정보 수정
+                        </button>
+                        <button onclick="deleteEmployee('${emp.id}')" class="bg-red-50 hover:bg-red-100 text-red-600 px-3 py-1 rounded-lg text-xs font-semibold">
+                          직원 삭제
+                        </button>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function handleAddEmployee(e) {
+      e.preventDefault();
+      const id = document.getElementById('addEmpId').value.trim();
+      const name = document.getElementById('addEmpName').value.trim();
+      const pass = document.getElementById('addEmpPass').value.trim();
+
+      if (accountsList.some(acc => acc.id === id)) {
+        alert('이미 존재하는 아이디입니다.');
+        return;
+      }
+
+      accountsList.push({ id, name, pass, role: 'employee' });
+      saveAccounts();
+      alert(`신규 직원(${name})이 추가되었습니다!`);
+      renderContent();
+    }
+
+    function editEmployee(empId) {
+      const emp = accountsList.find(x => x.id === empId);
+      if (!emp) return;
+
+      const newName = prompt('수정할 직원 이름을 입력하세요:', emp.name);
+      if (newName === null) return;
+
+      const newPass = prompt('수정할 비밀번호(숫자 4자리)를 입력하세요:', emp.pass);
+      if (newPass === null) return;
+
+      emp.name = newName.trim() || emp.name;
+      if (newPass.trim() !== '') emp.pass = newPass.trim();
+
+      saveAccounts();
+      alert('직원 정보가 성공적으로 수정되었습니다.');
+      renderContent();
+    }
+
+    function deleteEmployee(empId) {
+      const emp = accountsList.find(x => x.id === empId);
+      if (!emp) return;
+
+      if (confirm(`정말 ${emp.name} (${emp.id}) 직원을 삭제하시겠습니까?`)) {
+        accountsList = accountsList.filter(x => x.id !== empId);
+        saveAccounts();
+        alert('직원이 삭제되었습니다.');
+        renderContent();
+      }
+    }
+
+    function renderEmpPersonalView() {
+      const empItems = getFilteredSalesData().filter(d => d.employeeId === currentAuth.id);
+      const totalMargin = empItems.reduce((acc, cur) => acc + Number(cur.margin || cur.sales || 0), 0);
+      const totalCount = empItems.length;
+      const empAvgMargin = totalCount > 0 ? Math.round(totalMargin / totalCount) : 0;
+
+      const mobItems = empItems.filter(d => d.type === '모바일');
+      const mobCount = mobItems.length;
+      const modongO = mobItems.filter(d => d.modong === 'O').length;
+      const modongRatio = mobCount > 0 ? ((modongO / mobCount) * 100).toFixed(1) : 0;
+
+      const bugaQual = mobItems.filter(d => d.buga === 'O' && Number(d.margin || d.sales || 0) >= 220000).length;
+      const bugaRatio = mobCount > 0 ? ((bugaQual * 100) / mobCount).toFixed(1) : 0;
+
+      const types = ['인터넷', '모바일', '유심', '알뜰폰', '렌탈', '상조'];
+
+      return `
+        <div class="space-y-6">
+          <div class="bg-indigo-900 text-white rounded-2xl p-6 shadow-md">
+            <h2 class="text-xl font-bold mb-2">👤 ${currentAuth.name} 님의 당월 개인 실적 현황 (${getCurrentYearMonth()})</h2>
+            <p class="text-xs text-indigo-200 mb-6">당월 실적 기준이며, 실시간으로 개인 마진과 모동/부가 유치율을 집계합니다.</p>
+            <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
+              <div class="bg-white/10 p-4 rounded-xl border border-white/10">
+                <p class="text-xs text-indigo-200 mb-1">내 당월 총 마진액</p>
+                <p class="text-2xl font-black">${totalMargin.toLocaleString()}원</p>
+              </div>
+              <div class="bg-white/10 p-4 rounded-xl border border-white/10">
+                <p class="text-xs text-indigo-200 mb-1">내 개인별 총 건당 마진</p>
+                <p class="text-2xl font-black text-amber-300">${empAvgMargin.toLocaleString()}원</p>
+              </div>
+              <div class="bg-white/10 p-4 rounded-xl border border-white/10">
+                <p class="text-xs text-indigo-200 mb-1">총 합산건수 / 모동 유치율</p>
+                <p class="text-lg font-bold mt-1">${totalCount}건 <span class="text-xs font-normal text-amber-300">(${modongRatio}%)</span></p>
+              </div>
+              <div class="bg-white/10 p-4 rounded-xl border border-white/10">
+                <p class="text-xs text-indigo-200 mb-1">부가 유치율 (22만↑ 인정)</p>
+                <p class="text-lg font-bold mt-1 text-violet-300">${bugaRatio}% <span class="text-xs font-normal text-slate-200">(${bugaQual}건)</span></p>
+              </div>
+            </div>
+          </div>
+
+          <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+            <h3 class="text-base font-bold text-slate-800 mb-4">📊 내 당월 상품별 건당 마진 현황</h3>
+            <div class="grid grid-cols-2 sm:grid-cols-6 gap-3 text-center">
+              ${types.map(t => {
+                const tItems = empItems.filter(d => d.type === t);
+                const cnt = tItems.length;
+                const tMarginSum = tItems.reduce((a, b) => a + Number(b.margin || b.sales || 0), 0);
+                const tAvgMargin = cnt > 0 ? Math.round(tMarginSum / cnt) : 0;
+                return `
+                  <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex flex-col justify-between">
+                    <div>
+                      <p class="text-xs font-bold text-slate-500 mb-1">${t}</p>
+                      <p class="text-lg font-black text-slate-800">${cnt}건</p>
+                    </div>
+                    <div class="mt-2 pt-2 border-t border-slate-200/60">
+                      <p class="text-[10px] text-slate-400">상품별 건당 마진</p>
+                      <p class="text-xs font-bold text-emerald-600">${tAvgMargin.toLocaleString()}원</p>
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          </div>
+
+          <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+            <h3 class="text-base font-bold text-slate-800 mb-4">📋 내 당월 계약 상세 리스트 (${empItems.length}건)</h3>
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm text-left">
+                <thead class="bg-slate-100 text-slate-600">
+                  <tr>
+                    <th class="p-3">계약일자</th>
+                    <th class="p-3">고객명</th>
+                    <th class="p-3">계약번호</th>
+                    <th class="p-3">유형</th>
+                    <th class="p-3">모동</th>
+                    <th class="p-3">부가</th>
+                    <th class="p-3">접수경로</th>
+                    <th class="p-3">마진액 (매출액)</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                  ${empItems.length === 0 ? '<tr><td colspan="8" class="p-4 text-center text-slate-400">당월 등록된 계약 데이터가 없습니다.</td></tr>' : ''}
+                  ${empItems.map(item => `
+                    <tr>
+                      <td class="p-3 text-xs text-slate-500 font-mono">${item.date || '-'}</td>
+                      <td class="p-3 font-semibold">${item.customer}</td>
+                      <td class="p-3 font-mono font-bold text-slate-700">${item.contractNo}</td>
+                      <td class="p-3">${item.type}</td>
+                      <td class="p-3">${item.modong === 'O' ? '<span class="text-emerald-600 font-bold">O</span>' : '<span class="text-slate-300">X</span>'}</td>
+                      <td class="p-3">${item.buga === 'O' ? '<span class="text-violet-600 font-bold">O</span>' : '<span class="text-slate-300">X</span>'}</td>
+                      <td class="p-3"><span class="bg-slate-100 text-slate-700 text-xs px-2 py-0.5 rounded font-mono">${item.path}</span></td>
+                      <td class="p-3 font-bold text-slate-900">${Number(item.margin || item.sales || 0).toLocaleString()}원</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function toggleNewModongAndBuga() {
+      const typeEl = document.getElementById('newType');
+      const modongEl = document.getElementById('newModong');
+      const bugaEl = document.getElementById('newBuga');
+      if (!typeEl || !modongEl || !bugaEl) return;
+
+      if (typeEl.value === '모바일') {
+        modongEl.disabled = false;
+        modongEl.classList.remove('bg-slate-100', 'text-slate-400', 'cursor-not-allowed');
+        bugaEl.disabled = false;
+        bugaEl.classList.remove('bg-slate-100', 'text-slate-400', 'cursor-not-allowed');
+      } else {
+        modongEl.value = 'X';
+        modongEl.disabled = true;
+        modongEl.classList.add('bg-slate-100', 'text-slate-400', 'cursor-not-allowed');
+        bugaEl.value = 'X';
+        bugaEl.disabled = true;
+        bugaEl.classList.add('bg-slate-100', 'text-slate-400', 'cursor-not-allowed');
+      }
+    }
+
+    function toggleEditModongAndBuga() {
+      const typeEl = document.getElementById('editType');
+      const modongEl = document.getElementById('editModong');
+      const bugaEl = document.getElementById('editBuga');
+      if (!typeEl || !modongEl || !bugaEl) return;
+
+      if (typeEl.value === '모바일') {
+        modongEl.disabled = false;
+        modongEl.classList.remove('bg-slate-100', 'text-slate-400', 'cursor-not-allowed');
+        bugaEl.disabled = false;
+        bugaEl.classList.remove('bg-slate-100', 'text-slate-400', 'cursor-not-allowed');
+      } else {
+        modongEl.value = 'X';
+        modongEl.disabled = true;
+        modongEl.classList.add('bg-slate-100', 'text-slate-400', 'cursor-not-allowed');
+        bugaEl.value = 'X';
+        bugaEl.disabled = true;
+        bugaEl.classList.add('bg-slate-100', 'text-slate-400', 'cursor-not-allowed');
+      }
+    }
+
+    function renderAdminLedger() {
+      const employeesOnly = accountsList.filter(a => a.role === 'employee');
+      const dataToDisplay = getFilteredSalesData();
+      const todayStr = new Date().toISOString().split('T')[0];
+
+      setTimeout(() => { toggleNewModongAndBuga(); }, 0);
+
+      return `
+        <div class="space-y-6">
+          <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+            <h2 class="text-xl font-bold mb-4 text-slate-800">➕ 판매건 신규 등록 (구글 스프레드시트 실시간 동기화)</h2>
+            <form onsubmit="handleAddContract(event)" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
+              <div>
+                <label class="block text-xs font-semibold text-slate-600 mb-1">매장 선택</label>
+                <select id="newStoreSelect" class="w-full border p-2.5 rounded-lg text-sm">
+                  ${storeList.map(st => `<option value="${st}">${st}</option>`).join('')}
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-600 mb-1">계약일자</label>
+                <input type="date" id="newDate" value="${todayStr}" class="w-full border p-2.5 rounded-lg text-sm" required />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-600 mb-1">고객명</label>
+                <input type="text" id="newCustomer" placeholder="예: 홍길동" class="w-full border p-2.5 rounded-lg text-sm" required />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-600 mb-1">계약번호 (AJD: ajung, AJO: ajsto 자동)</label>
+                <input type="text" id="newContractNo" oninput="autoDetectPath(this.value, 'newPath')" placeholder="예: AJD-001 또는 AJO-001" class="w-full border p-2.5 rounded-lg text-sm uppercase font-mono font-bold" required />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-600 mb-1">마진액 / 매출액 (원)</label>
+                <input type="number" id="newMargin" placeholder="예: 350000" class="w-full border p-2.5 rounded-lg text-sm" required />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-600 mb-1">계약 유형</label>
+                <select id="newType" onchange="toggleNewModongAndBuga()" class="w-full border p-2.5 rounded-lg text-sm">
+                  <option value="인터넷">인터넷</option>
+                  <option value="모바일">모바일</option>
+                  <option value="유심">유심</option>
+                  <option value="알뜰폰">알뜰폰</option>
+                  <option value="렌탈">렌탈</option>
+                  <option value="상조">상조</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-600 mb-1">모동 여부 (모바일 시)</label>
+                <select id="newModong" class="w-full border p-2.5 rounded-lg text-sm">
+                  <option value="X">X</option>
+                  <option value="O">O</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-600 mb-1">부가 여부 (모바일 시)</label>
+                <select id="newBuga" class="w-full border p-2.5 rounded-lg text-sm">
+                  <option value="X">X</option>
+                  <option value="O">O</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-600 mb-1">접수 경로</label>
+                <select id="newPath" class="w-full border p-2.5 rounded-lg text-sm">
+                  <option value="ajsto">ajsto</option>
+                  <option value="ajung">ajung</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-600 mb-1">담당 직원</label>
+                <select id="newEmpId" class="w-full border p-2.5 rounded-lg text-sm">
+                  ${employeesOnly.map(e => `<option value="${e.id}">${e.name} (${e.id})</option>`).join('')}
+                </select>
+              </div>
+              <div class="sm:col-span-2 md:col-span-5 mt-2">
+                <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl transition shadow-md">
+                  + 신규 판매건 등록하기 (구글 시트 실시간 저장)
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+            <h2 class="text-xl font-bold mb-4 text-slate-800">📋 전체 매장 판매건 리스트 (${selectedMonth === 'all' ? '전체' : selectedMonth} / ${selectedStore === 'all' ? '전체 매장' : selectedStore})</h2>
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm text-left">
+                <thead class="bg-slate-100 text-slate-600">
+                  <tr>
+                    <th class="p-3">매장</th>
+                    <th class="p-3">계약일자</th>
+                    <th class="p-3">고객명</th>
+                    <th class="p-3">계약번호</th>
+                    <th class="p-3">담당직원</th>
+                    <th class="p-3">마진액 (매출액)</th>
+                    <th class="p-3">유형</th>
+                    <th class="p-3">모동</th>
+                    <th class="p-3">부가</th>
+                    <th class="p-3">경로</th>
+                    <th class="p-3 text-center">관리</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                  ${dataToDisplay.length === 0 ? '<tr><td colspan="11" class="p-4 text-center text-slate-400">등록된 판매 데이터가 없습니다.</td></tr>' : ''}
+                  ${dataToDisplay.map(item => `
+                    <tr>
+                      <td class="p-3 font-semibold text-slate-600"><span class="bg-slate-100 px-2 py-0.5 rounded text-xs">${item.storeName || storeList[0]}</span></td>
+                      <td class="p-3 text-xs text-slate-500 font-mono">${item.date || '-'}</td>
+                      <td class="p-3 font-semibold">${item.customer}</td>
+                      <td class="p-3 text-slate-700 font-mono font-bold">${item.contractNo}</td>
+                      <td class="p-3 font-semibold text-slate-700">${item.employeeName}</td>
+                      <td class="p-3 font-bold text-emerald-600">${Number(item.margin || item.sales || 0).toLocaleString()}원</td>
+                      <td class="p-3">${item.type}</td>
+                      <td class="p-3 font-bold ${item.modong === 'O' ? 'text-emerald-600' : 'text-slate-300'}">${item.modong}</td>
+                      <td class="p-3 font-bold ${item.buga === 'O' ? 'text-violet-600' : 'text-slate-300'}">${item.buga || 'X'}</td>
+                      <td class="p-3"><span class="bg-slate-100 text-slate-700 text-xs px-2 py-0.5 rounded font-mono">${item.path}</span></td>
+                      <td class="p-3 text-center space-x-1">
+                        <button onclick="openEditModal(${item.id})" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 px-2.5 py-1 rounded-lg font-bold text-xs transition">
+                          수정
+                        </button>
+                        <button onclick="deleteContract(${item.id})" class="bg-red-50 hover:bg-red-100 text-red-600 px-2.5 py-1 rounded-lg font-bold text-xs transition">
+                          삭제
+                        </button>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function openEditModal(id) {
+      const item = salesData.find(d => d.id === id);
+      if (!item) return;
+
+      const storeSelect = document.getElementById('editStoreSelect');
+      storeSelect.innerHTML = storeList.map(st => `<option value="${st}">${st}</option>`).join('');
+      storeSelect.value = item.storeName || storeList[0];
+
+      document.getElementById('editId').value = item.id;
+      document.getElementById('editDate').value = item.date || new Date().toISOString().split('T')[0];
+      document.getElementById('editCustomer').value = item.customer;
+      document.getElementById('editContractNo').value = item.contractNo;
+      document.getElementById('editMargin').value = item.margin || item.sales || 0;
+      document.getElementById('editType').value = item.type;
+      document.getElementById('editModong').value = item.modong;
+      document.getElementById('editBuga').value = item.buga || 'X';
+      document.getElementById('editPath').value = item.path;
+
+      const employeesOnly = accountsList.filter(a => a.role === 'employee');
+      const empSelect = document.getElementById('editEmpId');
+      empSelect.innerHTML = employeesOnly.map(e => `<option value="${e.id}">${e.name} (${e.id})</option>`).join('');
+      empSelect.value = item.employeeId;
+
+      toggleEditModongAndBuga();
+
+      const modal = document.getElementById('editModal');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    }
+
+    function closeEditModal() {
+      const modal = document.getElementById('editModal');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+
+    async function handleSaveEdit(e) {
+      e.preventDefault();
+      const id = Number(document.getElementById('editId').value);
+      const item = salesData.find(d => d.id === id);
+      if (!item) return;
+
+      const cleanContractNo = document.getElementById('editContractNo').value.trim().toUpperCase();
+
+      // 수정 시 계약번호 중복 검증
+      const isDuplicate = salesData.some(d => d.id !== id && d.contractNo && d.contractNo.trim().toUpperCase() === cleanContractNo);
+      if (isDuplicate) {
+        alert(`이미 등록되어 있는 중복된 계약번호입니다: [${cleanContractNo}]\n다른 계약번호를 입력해주세요.`);
+        return;
+      }
+
+      const empId = document.getElementById('editEmpId').value;
+      const emp = accountsList.find(x => x.id === empId);
+
+      const val = Number(document.getElementById('editMargin').value);
+      item.storeName = document.getElementById('editStoreSelect').value;
+      item.date = document.getElementById('editDate').value;
+      item.customer = document.getElementById('editCustomer').value;
+      item.contractNo = cleanContractNo;
+      item.sales = val;
+      item.margin = val;
+      item.type = document.getElementById('editType').value;
+      item.modong = document.getElementById('editModong').value;
+      item.buga = document.getElementById('editBuga').value;
+      item.path = document.getElementById('editPath').value;
+      item.employeeId = emp ? emp.id : empId;
+      item.employeeName = emp ? emp.name : item.employeeName;
+
+      saveData();
+      closeEditModal();
+      renderNav();
+      renderContent();
+
+      // 구글 시트에 수정 반영
+      await postToSheet({
+        action: "edit",
+        item: item
+      });
+      alert('계약 정보가 수정 및 구글 시트에 동기화되었습니다.');
+    }
+
+    async function handleAddContract(e) {
+      e.preventDefault();
+
+      const contractNoInput = document.getElementById('newContractNo');
+      const cleanContractNo = contractNoInput.value.trim().toUpperCase();
+
+      // 1. 중복 계약번호 등록 차단 검증
+      const isDuplicate = salesData.some(d => d.contractNo && d.contractNo.trim().toUpperCase() === cleanContractNo);
+      if (isDuplicate) {
+        alert(`[등록 불가] 이미 등록되어 있는 중복된 계약번호입니다: [${cleanContractNo}]\n기존 계약번호를 확인해주세요.`);
+        contractNoInput.focus();
+        return;
+      }
+
+      const empId = document.getElementById('newEmpId').value;
+      const emp = accountsList.find(x => x.id === empId);
+      const val = Number(document.getElementById('newMargin').value || 0);
+
+      const newItem = {
+        id: Date.now(),
+        storeName: document.getElementById('newStoreSelect').value,
+        date: document.getElementById('newDate').value,
+        customer: document.getElementById('newCustomer').value,
+        contractNo: cleanContractNo,
+        sales: val,
+        margin: val,
+        type: document.getElementById('newType').value,
+        modong: document.getElementById('newModong').value,
+        buga: document.getElementById('newBuga').value,
+        path: document.getElementById('newPath').value,
+        employeeId: emp.id,
+        employeeName: emp.name
+      };
+
+      salesData.unshift(newItem);
+      saveData();
+      renderNav();
+      renderContent();
+
+      // 구글 시트에 추가 반영
+      await postToSheet({
+        action: "add",
+        item: newItem
+      });
+      alert(`신규 계약이 정상 등록되었습니다! (계약번호: ${cleanContractNo})`);
+      contractNoInput.value = "";
+      document.getElementById('newCustomer').value = "";
+      document.getElementById('newMargin').value = "";
+    }
+
+    async function deleteContract(id) {
+      if (confirm('해당 계약 데이터를 정말 삭제하시겠습니까?\n(구글 시트에서도 함께 삭제됩니다)')) {
+        salesData = salesData.filter(item => item.id !== id);
+        saveData();
+        renderNav();
+        renderContent();
+
+        // 구글 시트에 삭제 반영
+        await postToSheet({
+          action: "delete",
+          id: id
+        });
+        alert('계약 데이터가 삭제되었습니다.');
+      }
+    }
+
+    // 초기 실행 시 구글 시트 데이터 로드
+    window.addEventListener('DOMContentLoaded', () => {
+      renderHeader();
+      renderNav();
+      renderContent();
+      fetchSheetData(true);
+    });
+  </script>
+</body>
+</html>

@@ -157,9 +157,14 @@
 
   <script>
     // 기본 구글 스프레드시트 배포 웹 앱 API URL (모든 기기/브라우저 공통 적용)
-    const DEFAULT_GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycby1WnQRwccMATLOTRNFiGPG8cs4hOLW0_X9U3Q2LbEI29bH4K1DKFE-IGEsZcnIfmiR9Q/exec";
+    const DEFAULT_GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzQoqG0v10_Yw0nc3SkVbtn9ADLXubuzH5_dSEh6hPPrPkoPPFU7vU3_vbuWV4SUQPb3A/exec";
     function getScriptUrl() {
-      return localStorage.getItem('GOOGLE_SCRIPT_URL') || DEFAULT_GOOGLE_SCRIPT_URL;
+      const saved = localStorage.getItem('GOOGLE_SCRIPT_URL');
+      if (saved && saved.includes("AKfycby1WnQRwccMATLOTRNFiGPG8cs4hOLW0_X9U3Q2LbEI29bH4K1DKFE-IGEsZcnIfmiR9Q")) {
+        localStorage.removeItem('GOOGLE_SCRIPT_URL');
+        return DEFAULT_GOOGLE_SCRIPT_URL;
+      }
+      return saved || DEFAULT_GOOGLE_SCRIPT_URL;
     }
 
     const defaultAccounts = [

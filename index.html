@@ -156,8 +156,11 @@
   </div>
 
   <script>
-    // 구글 스프레드시트 배포 웹 앱 API URL
-    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycby1WnQRwccMATLOTRNFiGPG8cs4hOLW0_X9U3Q2LbEI29bH4K1DKFE-IGEsZcnIfmiR9Q/exec";
+    // 기본 구글 스프레드시트 배포 웹 앱 API URL (모든 기기/브라우저 공통 적용)
+    const DEFAULT_GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycby1WnQRwccMATLOTRNFiGPG8cs4hOLW0_X9U3Q2LbEI29bH4K1DKFE-IGEsZcnIfmiR9Q/exec";
+    function getScriptUrl() {
+      return localStorage.getItem('GOOGLE_SCRIPT_URL') || DEFAULT_GOOGLE_SCRIPT_URL;
+    }
 
     const defaultAccounts = [
       { id: "admin", name: "정준기", pass: "0216", role: "admin" },
@@ -311,12 +314,15 @@
     // 구글 시트에서 데이터 가져오기 (GET)
     async function fetchSheetData(silent = false) {
       if (!silent) showLoading("구글 스프레드시트 데이터 불러오는 중...");
+      const statusTextEl = document.getElementById('loginSyncStatusText');
       try {
-        const response = await fetch(GOOGLE_SCRIPT_URL);
-        if (!response.ok) throw new Error("네트워크 응답 오류");
-        const data = await response.json();
-        if (Array.isArray(data)) {
-          salesData = data.map(item => ({
+        const response = await fetch(getScriptUrl());
+        if (!response.ok) throw new Error("네트워크 응답 오류 (" + response.status + ")");
+        let raw = await response.json();
+        let rows = Array.isArray(raw) ? raw : (raw && Array.isArray(raw.data) ? raw.data : null);
+
+        if (rows) {
+          salesData = rows.map(item => ({
             id: Number(item.id) || Date.now(),
             date: item.date ? String(item.date).substring(0, 10) : "",
             customer: String(item.customer || ""),
@@ -332,19 +338,33 @@
             storeName: String(item.storeName || storeList[0] || "1호점")
           }));
           saveData();
-          document.getElementById('syncIndicator').innerHTML = `
-            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> 시트 연동 정상 (${salesData.length}건)
-          `;
+          const ind = document.getElementById('syncIndicator');
+          if (ind) {
+            ind.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> 시트 연동 정상 (${salesData.length}건)`;
+          }
+          if (statusTextEl) {
+            statusTextEl.className = "text-xs text-emerald-600 font-semibold";
+            statusTextEl.innerHTML = `<i class="fa-solid fa-circle-check"></i> 스프레드시트 정상 연동 중 (${salesData.length}건 동기화됨)`;
+          }
+        } else {
+          throw new Error("올바른 시트 데이터 형식이 아닙니다.");
         }
       } catch (err) {
         console.warn("Google Sheet 연동 오류 (로컬 캐시 사용):", err);
-        document.getElementById('syncIndicator').innerHTML = `
-          <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span> 로컬 캐시 모드
-        `;
+        const ind = document.getElementById('syncIndicator');
+        if (ind) {
+          ind.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span> 로컬 캐시 모드`;
+        }
+        if (statusTextEl) {
+          statusTextEl.className = "text-xs text-amber-600 font-semibold";
+          statusTextEl.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> 오프라인/로컬 캐시 모드 (${salesData.length}건)`;
+        }
       } finally {
         if (!silent) hideLoading();
         renderNav();
-        renderContent();
+        if (currentAuth) {
+          renderContent();
+        }
       }
     }
 
@@ -352,7 +372,7 @@
     async function postToSheet(payload) {
       showLoading("구글 스프레드시트에 저장 중...");
       try {
-        await fetch(GOOGLE_SCRIPT_URL, {
+        await fetch(getScriptUrl(), {
           method: "POST",
           mode: "no-cors",
           headers: { "Content-Type": "application/json" },
@@ -523,10 +543,14 @@
     }
 
     function renderUnifiedLoginPage() {
+      const currentUrl = getScriptUrl();
       return `
-        <div class="max-w-md mx-auto bg-white p-8 rounded-2xl shadow-md border border-slate-200 mt-10">
-          <h2 class="text-xl font-bold text-slate-800 text-center mb-2">통합 시스템 로그인</h2>
-          <p class="text-xs text-slate-500 text-center mb-6">접속하실 계정을 선택하고 비밀번호를 입력해주세요.</p>
+        <div class="max-w-md mx-auto bg-white p-8 rounded-2xl shadow-md border border-slate-200 mt-6 space-y-6">
+          <div>
+            <h2 class="text-xl font-bold text-slate-800 text-center mb-1">통합 시스템 로그인</h2>
+            <p class="text-xs text-slate-500 text-center">접속하실 계정을 선택하고 비밀번호를 입력해주세요.</p>
+          </div>
+
           <form onsubmit="handleLoginSubmit(event)" class="space-y-4">
             <div>
               <label class="block text-sm font-medium text-slate-700 mb-1">사용자 선택</label>
@@ -545,10 +569,39 @@
                 <button type="button" onclick="togglePassVisibility('loginPassInput')" class="absolute right-3 top-3 text-slate-400 hover:text-slate-600"><i class="fa-solid fa-eye"></i></button>
               </div>
             </div>
-            <button type="submit" class="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 rounded-lg transition shadow-md">
-              로그인
+            <button type="submit" class="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 rounded-lg transition shadow-md flex items-center justify-center gap-2">
+              <i class="fa-solid fa-right-to-bracket"></i> 로그인
             </button>
           </form>
+
+          <!-- 스프레드시트 자동연동 및 새로고침 영역 -->
+          <div class="pt-4 border-t border-slate-100 space-y-3">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                <i class="fa-solid fa-table text-emerald-600"></i> 구글 시트 연동 상태
+              </span>
+              <button type="button" onclick="triggerManualSync()" class="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-600 font-bold px-2.5 py-1 rounded-md border border-indigo-200 transition flex items-center gap-1">
+                <i class="fa-solid fa-arrows-rotate"></i> 새로고침
+              </button>
+            </div>
+            <div id="loginSyncStatusText" class="text-xs text-emerald-600 font-semibold bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+              <i class="fa-solid fa-circle-check"></i> 스프레드시트 자동연동 활성 (${salesData.length}건 저장됨)
+            </div>
+            
+            <!-- 연동 URL 상세 설정 (필요시 확인/수정 가능) -->
+            <details class="text-xs text-slate-500 bg-slate-50/50 rounded-lg p-2 border border-slate-200">
+              <summary class="cursor-pointer font-semibold text-slate-600 hover:text-indigo-600 transition">
+                ⚙️ 연동 API URL 확인 및 재설정
+              </summary>
+              <div class="mt-2 space-y-2">
+                <input type="text" id="customScriptUrl" value="${currentUrl}" class="w-full text-[11px] font-mono border border-slate-300 rounded p-1.5 bg-white" placeholder="https://script.google.com/macros/s/.../exec" />
+                <div class="flex gap-2 justify-end">
+                  <button type="button" onclick="resetDefaultScriptUrl()" class="px-2 py-1 bg-slate-200 hover:bg-slate-300 rounded text-[11px] text-slate-700 font-semibold">기본값 복원</button>
+                  <button type="button" onclick="saveCustomScriptUrl()" class="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-[11px] font-bold">URL 저장 & 연결</button>
+                </div>
+              </div>
+            </details>
+          </div>
         </div>
       `;
     }
@@ -571,6 +624,7 @@
         renderHeader();
         renderNav();
         renderContent();
+        fetchSheetData(true); // 로그인 성공 즉시 백그라운드 최신 데이터 동기화
       } else {
         alert('비밀번호가 일치하지 않습니다.');
       }
@@ -1427,6 +1481,40 @@
     }
 
     // 초기 실행 시 구글 시트 데이터 로드
+    
+    // 로그인 창에서 즉시 새로고침 실행
+    function triggerManualSync() {
+      const statusTextEl = document.getElementById('loginSyncStatusText');
+      if (statusTextEl) {
+        statusTextEl.className = "text-xs text-indigo-600 font-semibold";
+        statusTextEl.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 스프레드시트와 실시간 연동 중...`;
+      }
+      fetchSheetData(false);
+    }
+
+    // 사용자 정의 스크립트 URL 저장 및 즉시 연동
+    function saveCustomScriptUrl() {
+      const urlInput = document.getElementById('customScriptUrl');
+      if (!urlInput) return;
+      const val = urlInput.value.trim();
+      if (!val) {
+        alert('URL을 입력해주세요.');
+        return;
+      }
+      localStorage.setItem('GOOGLE_SCRIPT_URL', val);
+      alert('스프레드시트 연동 URL이 저장되었습니다. 연동을 확인합니다.');
+      triggerManualSync();
+    }
+
+    // 기본 스크립트 URL로 리셋
+    function resetDefaultScriptUrl() {
+      localStorage.removeItem('GOOGLE_SCRIPT_URL');
+      const urlInput = document.getElementById('customScriptUrl');
+      if (urlInput) urlInput.value = DEFAULT_GOOGLE_SCRIPT_URL;
+      alert('기본 스프레드시트 연동 URL로 복원되었습니다.');
+      triggerManualSync();
+    }
+
     window.addEventListener('DOMContentLoaded', () => {
       renderHeader();
       renderNav();

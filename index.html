@@ -234,7 +234,7 @@
       `).join('');
     }
 
-    function addNewStore() {
+    async function addNewStore() {
       const input = document.getElementById('newStoreInput');
       const name = input.value.trim();
       if (!name) return;
@@ -246,9 +246,10 @@
       saveStores();
       input.value = "";
       renderStoreListModal();
+      await postToSheet({ action: "sync_stores", stores: storeList });
     }
 
-    function editStoreName(index) {
+    async function editStoreName(index) {
       const oldName = storeList[index];
       const newName = prompt("수정할 매장 명칭을 입력하세요:", oldName);
       if (!newName || newName.trim() === "" || newName.trim() === oldName) return;
@@ -268,9 +269,10 @@
         saveSelectedStore();
       }
       renderStoreListModal();
+      await postToSheet({ action: "sync_stores", stores: storeList });
     }
 
-    function deleteStore(index) {
+    async function deleteStore(index) {
       if (storeList.length <= 1) {
         alert("최소 1개의 매장은 유지되어야 합니다.");
         return;
@@ -284,6 +286,7 @@
           saveSelectedStore();
         }
         renderStoreListModal();
+        await postToSheet({ action: "sync_stores", stores: storeList });
       }
     }
 
@@ -311,7 +314,7 @@
     function saveAccounts() { localStorage.setItem('accountsList', JSON.stringify(accountsList)); }
     function saveAuth() { localStorage.setItem('currentAuth', JSON.stringify(currentAuth)); }
 
-    // 구글 시트에서 데이터 가져오기 (GET)
+    // 구글 시트에서 전체 데이터(매출, 직원계정, 매장목록) 가져오기 (GET)
     async function fetchSheetData(silent = false) {
       if (!silent) showLoading("구글 스프레드시트 데이터 불러오는 중...");
       const statusTextEl = document.getElementById('loginSyncStatusText');
@@ -319,7 +322,24 @@
         const response = await fetch(getScriptUrl());
         if (!response.ok) throw new Error("네트워크 응답 오류 (" + response.status + ")");
         let raw = await response.json();
-        let rows = Array.isArray(raw) ? raw : (raw && Array.isArray(raw.data) ? raw.data : null);
+        
+        // 멀티 시트 구조({ success, sales, accounts, stores }) 또는 레거시 단일 배열 지원
+        let rows = null;
+        if (raw && raw.sales) {
+          rows = raw.sales;
+          if (Array.isArray(raw.accounts) && raw.accounts.length > 0) {
+            accountsList = raw.accounts;
+            saveAccounts();
+          }
+          if (Array.isArray(raw.stores) && raw.stores.length > 0) {
+            storeList = raw.stores;
+            saveStores();
+          }
+        } else if (Array.isArray(raw)) {
+          rows = raw;
+        } else if (raw && Array.isArray(raw.data)) {
+          rows = raw.data;
+        }
 
         if (rows) {
           salesData = rows.map(item => ({
@@ -344,7 +364,7 @@
           }
           if (statusTextEl) {
             statusTextEl.className = "text-xs text-emerald-600 font-semibold";
-            statusTextEl.innerHTML = `<i class="fa-solid fa-circle-check"></i> 스프레드시트 정상 연동 중 (${salesData.length}건 동기화됨)`;
+            statusTextEl.innerHTML = `<i class="fa-solid fa-circle-check"></i> 스프레드시트 정상 연동 중 (${salesData.length}건, 직원 ${accountsList.length}명, 매장 ${storeList.length}곳)`;
           }
         } else {
           throw new Error("올바른 시트 데이터 형식이 아닙니다.");
@@ -362,9 +382,7 @@
       } finally {
         if (!silent) hideLoading();
         renderNav();
-        if (currentAuth) {
-          renderContent();
-        }
+        renderContent(); // 로그인 화면일 경우에도 사용자 목록 갱신 반영
       }
     }
 
@@ -1010,7 +1028,7 @@
       `;
     }
 
-    function handleAddEmployee(e) {
+    async function handleAddEmployee(e) {
       e.preventDefault();
       const id = document.getElementById('addEmpId').value.trim();
       const name = document.getElementById('addEmpName').value.trim();
@@ -1023,11 +1041,12 @@
 
       accountsList.push({ id, name, pass, role: 'employee' });
       saveAccounts();
-      alert(`신규 직원(${name})이 추가되었습니다!`);
       renderContent();
+      await postToSheet({ action: "sync_accounts", accounts: accountsList });
+      alert(`신규 직원(${name})이 구글 시트에 정상 등록 및 동기화되었습니다!`);
     }
 
-    function editEmployee(empId) {
+    async function editEmployee(empId) {
       const emp = accountsList.find(x => x.id === empId);
       if (!emp) return;
 
@@ -1041,19 +1060,21 @@
       if (newPass.trim() !== '') emp.pass = newPass.trim();
 
       saveAccounts();
-      alert('직원 정보가 성공적으로 수정되었습니다.');
       renderContent();
+      await postToSheet({ action: "sync_accounts", accounts: accountsList });
+      alert('직원 정보가 성공적으로 수정 및 구글 시트에 동기화되었습니다.');
     }
 
-    function deleteEmployee(empId) {
+    async function deleteEmployee(empId) {
       const emp = accountsList.find(x => x.id === empId);
       if (!emp) return;
 
       if (confirm(`정말 ${emp.name} (${emp.id}) 직원을 삭제하시겠습니까?`)) {
         accountsList = accountsList.filter(x => x.id !== empId);
         saveAccounts();
-        alert('직원이 삭제되었습니다.');
         renderContent();
+        await postToSheet({ action: "sync_accounts", accounts: accountsList });
+        alert('직원이 삭제되었으며 구글 시트에 반영되었습니다.');
       }
     }
 
